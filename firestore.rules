@@ -1,0 +1,32 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function isAdmin() { return signedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid)); }
+
+    // Admin flag docs are created by hand in the console only.
+    match /admins/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow write: if false;
+    }
+    match /users/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow create, update: if signedIn() && request.auth.uid == uid;
+    }
+    match /diaryEntries/{id} {
+      allow read: if signedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if signedIn() && request.resource.data.userId == request.auth.uid;
+      allow update: if signedIn() && resource.data.userId == request.auth.uid
+                    && request.resource.data.userId == resource.data.userId;
+      allow delete: if signedIn() && resource.data.userId == request.auth.uid;
+    }
+    // Password events: users may only add their own log; only admins may read.
+    match /activityLogs/{id} {
+      allow create: if signedIn() && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.eventType in ['Password Changed', 'Password Reset']
+                    && request.resource.data.keys().hasOnly(['userId','eventType','date','time','createdAt','timestamp']);
+      allow read: if isAdmin();
+      allow update, delete: if false;
+    }
+  }
+}
